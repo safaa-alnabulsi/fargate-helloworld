@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This template creates basic infrastructure required to run a Fargte task
+
+Parameters:
+  ClusterName:
+    Description: A user-generated string that you use to identify your cluster. If you don't specify a name, AWS CloudFormation generates a unique physical ID for the name.
+    Type: String
+    Default: ''
+  ImageName:
+    Description: The image used to start a container. This string is passed directly to the Docker daemon.
+    Type: String
+  ImageTag:
+    Description: The image tag which is used to start a container. This string is passed directly to the Docker daemon.
+    Type: String
+  Cpu:
+    Description: The number of cpu units used by the task
+    Type: Number
+    Default: 256
+    AllowedValues:
+    - 256
+    - 512
+    - 1024
+    - 2048
+    - 4096
+  Memory:
+    Description: The amount (in MiB) of memory used by the task.
+    Type: String
+    Default: 512
+    AllowedValues:
+    - 512
+    - 1024
+    - 2048
+    - 4096
+  Command:
+    Description: The command that is passed to the container.
+    Type: String
+    Default: ''
+  Environment:
+    Description: The environment variables to pass to a container.
+    Type: String
+    Default: 'dev'
+  Family:
+    Description: The name of a family that this task definition is registered to.
+    Type: String
+    Default: 'fargate-family'
+
+Resources:
+  MyRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref repositoryName
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ClusterName
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      RequiresCompatibilities:
+      - FARGATE
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      NetworkMode: awsvpc
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      Family: !Ref Family
+      ContainerDefinitions:
+      - Name: 'container-job'
+        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ImageName}:${ImageTag}
+        Command:
+        - !Ref Command
+        Environment:
+        - Name: ENV
+          Value: !Ref Environment
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group: !Ref TaskLogGroup
+            awslogs-region: !Ref AWS::Region
+            awslogs-stream-prefix: 'container-job'
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: 'Allow'
+          Principal:
+            Service:
+            - 'ecs-tasks.amazonaws.com'
+          Action:
+          - 'sts:AssumeRole'
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: 'Allow'
+          Principal:
+            Service:
+            - 'ecs-tasks.amazonaws.com'
+          Action:
+          - 'sts:AssumeRole'
+      Policies:
+      - PolicyName: ecr-pull
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action:
+            - ecr:BatchCheckLayerAvailability
+            - ecr:GetDownloadUrlForLayer
+            - ecr:BatchGetImage
+            Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ImageName}
+      - PolicyName: ecr-login
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action:
+            - ecr:GetAuthorizationToken
+            Resource: '*'
+
+      - PolicyName: logs
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: '*'
+
+  TaskLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, !Ref 'AWS::StackName', TaskDefinition]]
+      RetentionInDays: 3
+
+Outputs:
+  ClusterName:
+    Description: The name of the ECS cluster
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Join [ '-', [ !Ref 'AWS::StackName', ClusterName ] ]
+
+  TaskDefinitionName:
+    Description: The ARN of the TaskDefinition
+    Value: !Ref TaskDefinition
+    Export:
+      Name: !Join [ '-', [ !Ref 'AWS::StackName', TaskDefinition ] ]
