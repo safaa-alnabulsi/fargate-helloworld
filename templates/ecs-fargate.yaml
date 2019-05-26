@@ -45,11 +45,6 @@ Parameters:
     Default: 'fargate-family'
 
 Resources:
-  MyRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Ref repositoryName
-
   ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
